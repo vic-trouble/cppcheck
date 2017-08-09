@@ -89,6 +89,7 @@ private:
         TEST_CASE(alwaysTrue);
 
         TEST_CASE(checkInvalidTestForOverflow);
+        TEST_CASE(checkConditionIsAlwaysFalse);
     }
 
     void check(const char code[], const char* filename = "test.cpp", bool inconclusive = false) {
@@ -1675,6 +1676,7 @@ private:
               "    if (x & 3 == 2) {}\n"
               "}");
         ASSERT_EQUALS("[test.cpp:2]: (style) Suspicious condition (bitwise operator + comparison); Clarify expression with parentheses.\n"
+                      "[test.cpp:2]: (style) Condition 'x&3==2' is always false\n"
                       "[test.cpp:2]: (style) Condition '3==2' is always false\n", errout.str());
 
         check("void f() {\n"
@@ -1893,6 +1895,7 @@ private:
               "}");
         ASSERT_EQUALS("[test.cpp:2]: (style) Condition ''a'' is always true\n"
                       "[test.cpp:3]: (style) Condition 'L'b'' is always true\n"
+                      "[test.cpp:4]: (style) Condition '1&&'c'' is always true\n"
                       "[test.cpp:4]: (style) Condition ''c'' is always true\n"
                       "[test.cpp:5]: (style) Condition ''d'' is always true\n", errout.str());
     }
@@ -1927,6 +1930,18 @@ private:
               "    assert(x + 100U < x);\n"
               "}");
         ASSERT_EQUALS("", errout.str());
+    }
+
+    void checkConditionIsAlwaysFalse() {
+        check("void f()\n"
+              "  {\n"
+              "  enum states {A,B,C};\n"
+              "  const unsigned g_flags = B|C;\n"
+              "  if(g_flags & A)\n"
+              "    {\n"
+              "    }\n"
+              "  }");
+        ASSERT_EQUALS("[test.cpp:5]: (style) Condition 'g_flags&A' is always false\n", errout.str());
     }
 };
 
