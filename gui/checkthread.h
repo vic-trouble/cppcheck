@@ -56,6 +56,10 @@ public:
         mAddons = addons;
     }
 
+    void setVsIncludePaths(const QString &s) {
+        mVsIncludePaths = s;
+    }
+
     void setDataDir(const QString &dataDir) {
         mDataDir = dataDir;
     }
@@ -115,11 +119,12 @@ private:
     void runAddons(const QString &addonPath, const ImportProject::FileSettings *fileSettings, const QString &fileName);
 
     void parseAddonErrors(QString err, QString tool);
-    void parseClangErrors(const QString &file0, QString err);
+    void parseClangErrors(const QString &tool, const QString &file0, QString err);
 
     QStringList mFiles;
     bool mAnalyseWholeProgram;
     QStringList mAddons;
+    QString mVsIncludePaths;
     QString mDataDir;
     QString mClangPath;
 };

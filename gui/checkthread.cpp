@@ -118,17 +118,10 @@ void CheckThread::runAddons(const QString &addonPath, const ImportProject::FileS
             if (!fileSettings)
                 continue;
 
-            QStringList args;
-#ifdef Q_OS_WIN
-            // To create compile_commands.json in windows see:
-            // https://bitsmaker.gitlab.io/post/clang-tidy-from-vs2015/
+            if (!fileSettings->cfg.empty() && fileSettings->cfg.find("Debug") != std::string::npos)
+                continue;
 
-            // TODO: Replace the "QDir::homePath()"
-            args << "-isystem" << (QDir::homePath() + "/include");
-            args << "-isystem" << (QDir::homePath() + "/include/c++");
-            args << "-isystem" << (QDir::homePath() + "/include/c++/i686-w64-mingw32");
-            args << "-fno-ms-compatibility";
-#endif
+            QStringList args;
             for (std::list<std::string>::const_iterator I = fileSettings->includePaths.begin(); I != fileSettings->includePaths.end(); ++I)
                 args << ("-I" + QString::fromStdString(*I));
             for (std::list<std::string>::const_iterator i = fileSettings->systemIncludePaths.begin(); i != fileSettings->systemIncludePaths.end(); ++i)
@@ -136,8 +129,36 @@ void CheckThread::runAddons(const QString &addonPath, const ImportProject::FileS
             foreach (QString D, QString::fromStdString(fileSettings->defines).split(";")) {
                 args << ("-D" + D);
             }
+
+            if (!mClangPath.isEmpty()) {
+                QDir dir(mClangPath + "/../lib/clang");
+                foreach (QString ver, dir.entryList()) {
+                    QString includePath = dir.absolutePath() + '/' + ver + "/include";
+                    if (ver[0] != '.' && QDir(includePath).exists()) {
+                        args << "-isystem" << includePath;
+                        break;
+                    }
+                }
+            }
+
+#ifdef Q_OS_WIN
+            // To create compile_commands.json in windows see:
+            // https://bitsmaker.gitlab.io/post/clang-tidy-from-vs2015/
+
+            foreach (QString s, mVsIncludePaths.split(";")) {
+                if (!s.isEmpty()) {
+                    s.replace("\\", "/");
+                    args << "-isystem" << s;
+                }
+            }
+
+            args << "-U__STDC__" << "-fno-ms-compatibility";
+#endif
+
             if (!fileSettings->standard.empty())
-                args << (" -std=" + QString::fromStdString(fileSettings->standard));
+                args << ("-std=" + QString::fromStdString(fileSettings->standard));
+            else if (!mVsIncludePaths.isEmpty() && fileName.endsWith(".cpp"))
+                args << "-std=c++14";
 
             QString analyzerInfoFile;
 
@@ -149,7 +170,6 @@ void CheckThread::runAddons(const QString &addonPath, const ImportProject::FileS
                 QStringList args2(args);
                 args2.insert(0,"-E");
                 args2 << fileName;
-                qDebug() << cmd << args2;
                 QProcess process;
                 process.start(cmd,args2);
                 process.waitForFinished();
@@ -164,7 +184,7 @@ void CheckThread::runAddons(const QString &addonPath, const ImportProject::FileS
                         QFile f2(analyzerInfoFile + '.' + addon + "-results");
                         if (f2.open(QIODevice::ReadOnly | QIODevice::Text)) {
                             QTextStream in2(&f2);
-                            parseClangErrors(fileName, in2.readAll());
+                            parseClangErrors(addon, fileName, in2.readAll());
                             continue;
                         }
                     }
@@ -190,11 +210,22 @@ void CheckThread::runAddons(const QString &addonPath, const ImportProject::FileS
 
             const QString cmd(mClangPath.isEmpty() ? addon : (mClangPath + '/' + addon + ".exe"));
             {
-                QString debug(cmd);
+                QString debug(cmd.contains(" ") ? ('\"' + cmd + '\"') : cmd);
                 foreach (QString arg, args) {
-                    debug += ' ' + arg;
+                    if (arg.contains(" "))
+                        debug += " \"" + arg + '\"';
+                    else
+                        debug += ' ' + arg;
                 }
                 qDebug() << debug;
+
+                if (!analyzerInfoFile.isEmpty()) {
+                    QFile f(analyzerInfoFile + '.' + addon + "-cmd");
+                    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                        QTextStream out(&f);
+                        out << debug;
+                    }
+                }
             }
 
             QProcess process;
@@ -208,7 +239,7 @@ void CheckThread::runAddons(const QString &addonPath, const ImportProject::FileS
                     out << errout;
                 }
             }
-            parseClangErrors(fileName, errout);
+            parseClangErrors(addon, fileName, errout);
         } else {
             QString a;
             if (QFileInfo(addonPath + '/' + addon + ".py").exists())
@@ -293,7 +324,7 @@ void CheckThread::parseAddonErrors(QString err, QString tool)
     }
 }
 
-void CheckThread::parseClangErrors(const QString &file0, QString err)
+void CheckThread::parseClangErrors(const QString &tool, const QString &file0, QString err)
 {
     QList<ErrorItem> errorItems;
     ErrorItem errorItem;
@@ -320,7 +351,7 @@ void CheckThread::parseClangErrors(const QString &file0, QString err)
         QString message,id;
         if (r2.exactMatch(r1.cap(4))) {
             message = r2.cap(1);
-            id = r2.cap(2);
+            id = tool + '-' + r2.cap(2);
         } else {
             message = r1.cap(4);
             id = CLANG;
